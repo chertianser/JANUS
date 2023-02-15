@@ -20,6 +20,15 @@ from .utils import get_selfies_chars
 
 RDLogger.DisableLog("rdApp.*")
 
+
+# Updated SELFIES constraints: 
+default_constraints = selfies.get_semantic_constraints()
+new_constraints = default_constraints
+new_constraints['S'] = 2
+new_constraints['P'] = 3
+selfies.set_semantic_constraints(new_constraints)  # update constraints
+
+
 def get_fp_scores(smiles_back, target_smi):
     """
     Given a list of SMILES (smiles_back), tanimoto similarities are calculated 
@@ -206,7 +215,7 @@ def perform_crossover(comb_smi, num_random_samples):
                 isomericSmiles=False,
                 canonical=True,
             )
-            if  smi_canon != "":  # Size restriction!
+            if len(smi_canon) <= 81 and smi_canon != "":  # Size restriction!
                 collect_smiles_canon.append(smi_canon)
         except:
             continue

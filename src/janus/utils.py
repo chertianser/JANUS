@@ -1,5 +1,4 @@
 import selfies as sf
-import yaml
 from rdkit.Chem import AllChem
 from rdkit.Chem import MolFromSmiles as smi2mol
 from rdkit.Chem import MolToSmiles as mol2smi
@@ -41,8 +40,6 @@ def sanitize_smiles(smi):
     conversion_successful (bool): 
         True/False to indicate if conversion was  successful 
     """
-    if smi == '':
-        return None
     try:
         mol = smi2mol(smi, sanitize=True)
         smi_canon = mol2smi(mol, isomericSmiles=False, canonical=True)
@@ -74,20 +71,3 @@ def get_fp_scores(smiles_back, target_smi):
         score = TanimotoSimilarity(fp_mol, fp_target)
         smiles_back_scores.append(score)
     return smiles_back_scores
-
-def from_yaml(work_dir, 
-        fitness_function, 
-        start_population,
-        yaml_file, **kwargs):
-
-    # create dictionary with parameters defined by yaml file 
-    with open(yaml_file, 'r') as f:
-        params = yaml.load(f, Loader=yaml.SafeLoader)
-    params.update(kwargs)
-    params.update({
-        'work_dir': work_dir,
-        'fitness_function': fitness_function,
-        'start_population': start_population
-    })
-
-    return params

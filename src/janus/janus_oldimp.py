@@ -67,7 +67,6 @@ class JANUS():
             )
         )
         
-        
         '''
         idx = np.argsort(init_fitness)[::-1]
         init_smiles = np.array(init_smiles)[idx]
@@ -92,9 +91,12 @@ class JANUS():
         # Initialising smiles collector for input into scalarizer
         # Later iterations: still use smiles_collector format? 
         # But not entire dictionary, new dictionary for each gen?
+        init_collector = {}
+        for i in range(len(init_smiles)):
+            init_collector[init_smiles[i]] = [init_fitness[i], 1]
         
         # Don't need scalarizer values here (second return)
-        idx, __ = scalarize_and_sort(self.scalarizer, np.array(init_fitness))
+        idx, __ = scalarize_and_sort(self.scalarizer, init_collector)
         # Same as original, but sorting based on scalarizer values
         init_smiles = np.array(init_smiles)[idx]
         init_fitness = np.array(init_fitness)[idx]
@@ -181,16 +183,19 @@ class JANUS():
             '''
 
             ### ---- NAT: START MULTIOPT - Lines 177 - 183 ----
-            idx_temp, scalarizer_vals = scalarize_and_sort(self.scalarizer, np.array(self.fitness))
+            cur_collector = {}
+            for i in range(len(self.population)):
+                cur_collector[self.population[i]] = [self.fitness[i], 1]
+            
+            idx_temp, scalarizer_vals = scalarize_and_sort(self.scalarizer, cur_collector)
             print("Step 1 first sort: ", np.array(self.population)[idx_temp], np.array(self.fitness)[idx_temp])
 
             keep_smiles, replace_smiles = self.get_good_bad_smiles(
-                -1 * scalarizer_vals, # 0-1 is best-worst
+                #-1 * scalarizer_vals, # 0-1 is best-worst
+                scalarizer_vals, # don't use [::-1] internally in get_good_bad_smiles
                 self.population,
                 self.generation_size
             )
-            print("Smiles kept: ", len(keep_smiles))
-            print("Smiles replaced: ", len(replace_smiles))
             
             ### ---- NAT: DONE MULTIOPT ----
 
@@ -229,7 +234,7 @@ class JANUS():
                 if self.use_NN_classifier == True:
                     # The sampling needs to be done by the neural network!
                     print("    Training classifier neural net...")
-                    train_smiles, pro_val, fit_val = [], [], []
+                    train_smiles, pro_val = [], []
                     '''
                     for item in self.smiles_collector: 
                         train_smiles.append(item)
@@ -238,12 +243,10 @@ class JANUS():
                     '''
 
                     ### ---- NAT: START MULTIOPT - Lines 240 - 245 ----
-                    for item in self.smiles_collector: 
-                        train_smiles.append(item)
-                        fit_val.append(self.smiles_collector[item][0])
-
-                    __, scalarizer_vals = scalarize_and_sort(self.scalarizer, np.array(fit_val))
-                    for i in range(len(train_smiles)): 
+                    __, scalarizer_vals = scalarize_and_sort(self.scalarizer, self.smiles_collector)
+                    smiles_list = list(self.smiles_collector.keys())
+                    for i in range(len(smiles_list)): 
+                        train_smiles.append(smiles_list[i])
                         #pro_val.append(-1 * scalarizer_vals[i]) # 0 to 1 : good to bad
                         pro_val.append(scalarizer_vals[i])
                     train_and_save_classifier(train_smiles, pro_val, generation_index=nn_tag)
@@ -316,8 +319,11 @@ class JANUS():
             ### ---- NAT: START MULTIOPT - Line 312 ----
             # At this point, smiles_collector and self.population DO NOT have the same smiles
             # Create a dictionary with just the smiles in self.population
-            
-            idx_sort, scalarizer_vals = scalarize_and_sort(self.scalarizer, np.array(self.fitness))
+            cur_collector = {}
+            for i in range(len(self.population)):
+                cur_collector[self.population[i]] = self.smiles_collector[self.population[i]]
+
+            idx_sort, scalarizer_vals = scalarize_and_sort(self.scalarizer, cur_collector)
             ### ---- NAT: END MULTIOPT ----
 
             print(f"    (Explr) Top Fitness: {self.fitness[idx_sort[0]]}")
@@ -419,8 +425,11 @@ class JANUS():
             idx_sort = np.argsort(self.fitness_loc)[::-1]         # index of highest to lowest fitness scores
             '''
             ### ---- NAT: START MULTIOPT Line 416 ----
+            loc_collector = {}
+            for i in range(len(new_loc_smiles)):
+                loc_collector[new_loc_smiles[i]] = self.smiles_collector[new_loc_smiles[i]]
            
-            idx_sort, scalarizer_vals = scalarize_and_sort(self.scalarizer, np.array(self.fitness_loc))
+            idx_sort, scalarizer_vals = scalarize_and_sort(self.scalarizer, loc_collector)
             ### ---- NAT: END MULTIOPT ----
 
             print(f"    (Local) Top Fitness: {self.fitness_loc[idx_sort[0]]}")
@@ -483,8 +492,11 @@ class JANUS():
             fit_all_best = np.argmax(self.fitness)
             '''
             ### ---- NAT: START MULTIOPT - Lines 469 - 482 ----
+            cur_collector = {}
+            for i in range(len(self.population)):
+                cur_collector[self.population[i]] = self.smiles_collector[self.population[i]]
             
-            idx_sort, __ = scalarize_and_sort(self.scalarizer, np.array(self.fitness))
+            idx_sort, __ = scalarize_and_sort(self.scalarizer, cur_collector)
             print("Step 5 cur sort:", np.array(self.population)[idx_sort], np.array(self.fitness)[idx_sort])
             worst_indices = idx_sort[-self.num_exchanges:]    # replace worst ones with the best ones
             for i, idx in enumerate(worst_indices):
@@ -495,8 +507,12 @@ class JANUS():
                     continue
             # Save best of generation!: 
             # NEED TO MAKE NEW COLLECTOR WITH ADDED BEST LOCAL SMILES
+            fin_collector = {}
+            for i in range(len(self.population)):
+                fin_collector[self.population[i]] = self.smiles_collector[self.population[i]]
+            #print("fin collector", fin_collector)
 
-            idx_sort, __ = scalarize_and_sort(self.scalarizer, np.array(self.fitness))
+            idx_sort, __ = scalarize_and_sort(self.scalarizer, fin_collector)
             print("Step 5 fin sort:", np.array(self.population)[idx_sort], np.array(self.fitness)[idx_sort])
             fit_all_best = idx_sort[0] # Sorting based on scalarized values
             fitness_sort = np.array(self.fitness)[idx_sort]
@@ -513,28 +529,6 @@ class JANUS():
             # write best molecule with best fitness
             with open("./RESULTS" + "/generation_all_best.txt", "a+") as f:
                 f.writelines(f"Gen:{gen_}, {self.population[fit_all_best]}, {self.fitness[fit_all_best]} \n")
-
-            if gen_ == self.generations - 1:
-                all_fit = []
-                all_smiles = []
-                for item in self.smiles_collector: 
-                    all_smiles.append(item)
-                    all_fit.append(self.smiles_collector[item][0])
-                idx_sort, scalarizer_vals = scalarize_and_sort(self.scalarizer, np.array(all_fit))
-                fitness_sort = np.array(all_fit)[idx_sort]
-                scalarizer_sort = np.array(scalarizer_vals)[idx_sort]
-                smiles_sort = np.array(all_smiles)[idx_sort]
-
-                with open("./RESULTS" + "/smiles_collector.txt", "a+") as f:
-                    f.writelines(["{},{},{} \n".format(i,x,y) for i,x,y in zip(range(len(smiles_sort)),smiles_sort,fitness_sort)])
-
-                csv_vals = []
-                for j in range(len(smiles_sort)):
-                    csv_vals.append((j,smiles_sort[j],fitness_sort[j][0],fitness_sort[j][1],fitness_sort[j][2],fitness_sort[j][3]))
-                df = pd.DataFrame(csv_vals, columns =['i','smi','redox','rss','sas','heavyatoms'])
-                df.to_csv("./RESULTS" + "/smiles_collector.csv")
-
-
 
         return
 
@@ -563,7 +557,8 @@ class JANUS():
         """
 
         fitness = np.array(fitness)
-        idx_sort = fitness.argsort()[::-1]  # Best -> Worst
+        #idx_sort = fitness.argsort()[::-1]  # Best -> Worst
+        idx_sort = fitness.argsort() # try this order, and not using -1 * scalarizer
         keep_ratio = 0.2
         keep_idx = int(len(list(idx_sort)) * keep_ratio)
         try:
@@ -571,14 +566,14 @@ class JANUS():
             F_50_val = fitness[idx_sort[keep_idx]]
             F_25_val = np.array(fitness) - F_50_val
             F_25_val = np.array([x for x in F_25_val if x < 0]) + F_50_val
-            F_25_sort = F_25_val.argsort()[::-1]
+            #F_25_sort = F_25_val.argsort()[::-1]
+            F_25_sort = F_25_val.argsort()
             F_25_val = F_25_val[F_25_sort[0]]
 
             prob_ = 1 / (3 ** ((F_50_val - fitness) / (F_50_val - F_25_val)) + 1)
 
             prob_ = prob_ / sum(prob_)
-            # replace=False added to avoid duplicates
-            to_keep = np.random.choice(generation_size, keep_idx, p=prob_, replace=False)
+            to_keep = np.random.choice(generation_size, keep_idx, p=prob_)
             to_replace = [i for i in range(generation_size) if i not in to_keep][
                 0 : generation_size - len(to_keep)
             ]

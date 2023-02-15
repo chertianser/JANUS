@@ -9,22 +9,22 @@ import os, copy
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-
 import rdkit
 from rdkit import Chem
 from rdkit import RDLogger
-from rdkit.Chem import Descriptors
+from rdkit.Chem import Descriptors, AllChem
 RDLogger.DisableLog('rdApp.*')
 
 import inspect
 from collections import OrderedDict
 
 import multiprocessing
-from typing import List
-from .features import get_mol_info
+manager = multiprocessing.Manager()
+lock = multiprocessing.Lock()
 
-def get_mol_feature(smi: str) -> np.array:
+def get_mol_info(smi: str) -> np.array:
     """
     Given a SMILES string (smi), a user needs to provide code for creating descriptors
     for the molecules. This will be used as features for the (1) classifier NN and (2)
@@ -43,36 +43,105 @@ def get_mol_feature(smi: str) -> np.array:
         Property value of SMILES string 'smi'.
 
     """
-    # mol = Chem.MolFromSmiles(smi)
-    # descriptor = AllChem.GetMorganFingerprintAsBitVect(mol, 3, 1024)
-    descriptor = get_mol_info(smi)
+    mol = Chem.MolFromSmiles(smi)
+    descriptor = AllChem.GetMorganFingerprintAsBitVect(mol, 2, 1024)
 
     return np.array(descriptor)
 
 
-def obtain_features(smi_list: List[str], num_workers: int = 1):
-    assert num_workers <= multiprocessing.cpu_count(), 'num_workers exceed cpu count'
-    with multiprocessing.Pool(num_workers) as pool:
-        dataset_x = pool.map(
-            get_mol_feature, smi_list
-        )
+def mol_parr_info(smiles_list, dataset_x):
+    ''' Record calculated rdkit property results for each smile in smiles_list,
+    and add record result in dictionary dataset_x.
+    '''
+    for smi in smiles_list:
+        dataset_x['descriptors'][smi] = get_mol_info(smi)
+
+
+def get_chunks(arr, num_processors, ratio):
+    """
+    Get chunks based on a list 
+    """
+    chunks = []  # Collect arrays that will be sent to different processorr 
+    counter = int(ratio)
+    for i in range(num_processors):
+        if i == 0:
+            chunks.append(arr[0:counter])
+        if i != 0 and i<num_processors-1:
+            chunks.append(arr[counter-int(ratio): counter])
+        if i == num_processors-1:
+            chunks.append(arr[counter-int(ratio): ])
+        counter += int(ratio)
+    return chunks 
+
+def create_parr_process(chunks):
+    '''This function initiates parallel execution (based on the number of cpu cores)
+    to calculate all the properties mentioned in 'get_mol_info()'
+    
+    Parameters:
+    chunks (list)   : List of lists, contining smile strings. Each sub list is 
+                      sent to a different process
+    dataset_x (dict): Locked dictionary for recording results from different processes. 
+                      Locking allows communication between different processes. 
+                      
+    Returns:
+    None : All results are recorde in dictionary 'dataset_x'
+    '''
+    # Assign data to each process 
+    process_collector = []
+    collect_dictionaries = []
+    
+    for chunk in chunks:                # process initialization 
+        dataset_x         = manager.dict(lock=True)
+        smiles_map_props  = manager.dict(lock=True)
+
+        dataset_x['descriptors'] = smiles_map_props
+        collect_dictionaries.append(dataset_x)
         
+        process_collector.append(
+            multiprocessing.Process(target=mol_parr_info, args=(chunk, dataset_x,))
+        )
+
+    for item in process_collector:      # initite all process 
+        item.start()
+    
+    for item in process_collector:      # wait for all processes to finish
+        item.join()   
+    
+    combined_dict = {}
+    for i,item in enumerate(collect_dictionaries):
+        combined_dict.update(item['descriptors'])
+
+    return combined_dict
+
+
+def obtain_discr_encoding(molecules_here, num_processors):
+    assert num_processors <= multiprocessing.cpu_count(), 'num_processors exceed cpu count'
+    ratio = len(molecules_here) / num_processors 
+    chunks = get_chunks(molecules_here, num_processors=num_processors, ratio=ratio)
+
+    # parallelised call for rdkit features
+    smi_dict = create_parr_process(chunks)
+
+    dataset_x = [smi_dict[smi] for smi in molecules_here]
     return np.array(dataset_x)
 
 
-class MLP(nn.Module):
-    def __init__(self, h_sizes: List[int], n_input: int, n_output: int):
-        super(MLP, self).__init__()
+class Net(torch.nn.Module):
+    def __init__(self, h_sizes, n_output):
+        super(Net, self).__init__()
         # Layers
-        self.hidden = nn.ModuleList([nn.Linear(n_input, h_sizes[0])])
+        self.hidden = nn.ModuleList()
+        self.hidden.append(nn.LazyLinear(h_sizes[0]))       # infer the input length
         for k in range(len(h_sizes)-1):
             self.hidden.append(nn.Linear(h_sizes[k], h_sizes[k+1]))
-        self.predict = nn.Linear(h_sizes[-1], n_output)
+        self.predict = torch.nn.Linear(h_sizes[-1], n_output)
+
 
     def forward(self, x):
         for layer in self.hidden:
             x = torch.sigmoid(layer(x))
-        output= torch.sigmoid(self.predict(x))
+        output= F.sigmoid(self.predict(x))
+
         return output
 
 class EarlyStopping():
@@ -112,42 +181,39 @@ class EarlyStopping():
         net.load_state_dict(self.best_weights)
         return net
 
+def create_discriminator(n_hidden, device):
+    """
+    Define an instance of the discriminator 
+    """
+    net = Net(h_sizes=n_hidden, n_output=1).to(device)
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
+    loss_func = torch.nn.BCELoss()
+    
+    return (net, optimizer, loss_func)
 
-def get_device(use_gpu: bool):
-    if use_gpu:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'   
-        if device == 'cpu':
-            print('No GPU available, defaulting to CPU.')
-    else:
-        device = 'cpu'
 
-    return device
 
-############################################################################################
-
-def create_network(n_hidden: List[int], n_input: int, n_output: int, device: str):
-    ''' Obtain network
+def obtain_initial_discriminator(disc_layers, device):
+    ''' Obtain Discriminator initializer
     
     Parameters:
-    n_hidden             (list) : Intermediate discrm layers (e.g. [100, 10])
+    disc_layers,         (list) : Intermediate discrm layers (e.g. [100, 10])
     device               (str)  : Device discrm. will be initialized 
     
     Returns:
-    net : torch model
-    optimizer   : Loss function optimized (Adam)
-    loss_func   : Loss (Cross-Entropy )
+    discriminator : torch model
+    d_optimizer   : Loss function optimized (Adam)
+    d_loss_func   : Loss (Cross-Entropy )
     '''
-    net = MLP(n_hidden, n_input, n_output).to(device)
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
-    loss_func = nn.BCELoss()
+    # Discriminator initialization 
+    discriminator, d_optimizer, d_loss_func = create_discriminator(disc_layers, device)  
     
-    return net, optimizer, loss_func
+    return discriminator, d_optimizer, d_loss_func
 
 
-def train_valid_split(data_x: np.array, data_y: np.array, train_ratio: float = 0.8, 
-        seed: int = 30624700):
+def train_valid_split(data_x, data_y, train_ratio=0.7, seed=30624700):
     ''' Return a random split of training and validation data. 
-    Ratio determines the size of training set. Avoids use of sklearn.
+    Ratio determines the size of training set. 
     '''
     n = data_x.shape[0]
     train_n = np.floor(n*train_ratio).astype(int)
@@ -157,15 +223,21 @@ def train_valid_split(data_x: np.array, data_y: np.array, train_ratio: float = 0
     valid_x, valid_y = data_x[indices[train_n:]], data_y[indices[train_n:]]
 
     return train_x, train_y, valid_x, valid_y
+    
 
+def do_validation_step(val_x, val_y, net, loss_func):
+    net.eval()
+    pred_y = net(val_x)
+    loss = loss_func(pred_y, val_y.reshape(len(val_y), 1))
+    net.train()
+    return loss
 
-def do_x_training_steps(data_x: np.array, data_y: np.array, net: nn.Module, 
-        optimizer: torch.optim.Optimizer, loss_func: nn.Module, 
-        steps: int, batch_size: int, device: str):
-    ''' Do steps for training. Set batch_size to -1 for full batch training, 
-    and 1 for SGD. 
+def do_x_training_steps(data_x, data_y, net, optimizer, loss_func, steps, batch_size, device):
+    ''' Do steps for training. Set batch_size to -1 for full batch training, and 1 for SGD. 
     '''
-    train_x, train_y, valid_x, valid_y = train_valid_split(data_x, data_y)
+    
+    train_x, train_y, valid_x, valid_y = train_valid_split(data_x, data_y, train_ratio=0.7)
+
     train_x = torch.tensor(train_x, device=device, dtype=torch.float)
     train_y = torch.tensor(train_y, device=device, dtype=torch.float)
     valid_x = torch.tensor(valid_x, device=device, dtype=torch.float)
@@ -177,30 +249,25 @@ def do_x_training_steps(data_x: np.array, data_y: np.array, net: nn.Module,
     train_loader = DataLoader(TensorDataset(train_x, train_y), batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(TensorDataset(valid_x, valid_y), batch_size=batch_size)
 
-    early_stop = EarlyStopping(patience=500, min_delta=1e-7, mode='minimize')
+    early_stop = EarlyStopping(patience=2000, min_delta=1e-7, mode='minimize')
+    
     net.train()
     for t in range(steps):
-        # training steps
+
         for x, y in train_loader:
-            pred_y = net(x)
-            loss = loss_func(pred_y, y)
+            predictions = net(x)
+            loss = loss_func(predictions, y.reshape(len(y), 1))
 
             optimizer.zero_grad()
-            loss.backward()
+            loss.backward(retain_graph=True)
             optimizer.step()
 
-        # validation steps
         val_loss = 0
-        net.eval()
-        with torch.no_grad():
-            for x, y in valid_loader:
-                pred_y = net(x)
-                loss = loss_func(pred_y, y)
-                val_loss += loss
-        net.train()
+        for x, y in valid_loader:
+            val_loss += do_validation_step(x, y, net, loss_func)
         val_loss /= len(valid_loader)
 
-        if t % 1000 == 0: 
+        if t % 400 == 0: 
             print('        Epoch:{} Loss:{}'.format(t, loss.item()))
             print(f'                Validation loss: {val_loss.item()}')
 
@@ -212,50 +279,91 @@ def do_x_training_steps(data_x: np.array, data_y: np.array, net: nn.Module,
 
     return net
 
-
-def create_and_train_network(smi_list: List[str], targets: np.array, n_hidden: List[int] = [100, 10], 
-        use_gpu: bool = True, num_workers: int = 1): 
-    ''' Featurize smiles and train classifier network. Return trained network.
+def save_model(model, model_name, dir_name, sub_name = None):
+    ''' Save the model in a subfolder if specified. Else, just save
+    in the specified directory.
     '''
-    # featurize
-    dataset_x = obtain_features(smi_list, num_workers=num_workers)
-    avg_val = np.percentile(targets, 80) # np.average(targets)
-    dataset_y  = np.expand_dims([1 if x >= avg_val else 0 for x in targets ], -1)
+    if sub_name is not None:
+        out_dir = os.path.join(dir_name, sub_name)
+    else:
+        out_dir = dir_name
     
-    # create network
-    device = get_device(use_gpu)
-    net, optimizer, loss_func = create_network(n_hidden, dataset_x.shape[-1], dataset_y.shape[-1], device)
+    if not os.path.isdir(out_dir): 
+        os.makedirs(out_dir)
+        
+    torch.save(model, os.path.join(out_dir, model_name))
 
-    # train network
-    net = do_x_training_steps(
-        data_x=dataset_x, data_y=dataset_y, net=net, 
-        optimizer=optimizer,  loss_func=loss_func, steps=20000, 
-        batch_size=1024, device=device
-    )
+def load_saved_model(model_name, dir_name, sub_name = None):
+    ''' Load saved model from directory. Go into subfolder if specified.
+    '''
+    if sub_name is not None:
+        model = torch.load(os.path.join(dir_name, sub_name, model_name))
+    else:
+        model = torch.load(os.path.join(dir_name, model_name))
+    model = model.eval()
+    return model 
+
+def do_predictions(discriminator, data_x, device):
+    discriminator = discriminator.eval()
     
-    return net
+    data_x = torch.tensor(data_x.astype(np.float32), device=device)
+    
+    outputs = discriminator(data_x)
+    predictions = outputs.detach().cpu().numpy() # Return as a numpy array
+    return (predictions)
 
 
-def obtain_model_pred(smi_list: List[str], net: nn.Module, use_gpu: bool = True,
-        num_workers: int = 1, batch_size: int = 1024): 
+def train_and_save_classifier(smiles_ls, pro_val, generation_index): 
+    dataset_x = obtain_discr_encoding(smiles_ls, num_processors=1) # multiprocessing.cpu_count()
+
+    avg_val = np.percentile(pro_val, 80) # np.average(pro_val)
+    dataset_y  = np.array([1 if x>=avg_val else 0 for x in pro_val ])
+    
+    disc_layers = [100, 10]
+    device      = 'cpu'
+    
+    discriminator, d_optimizer, d_loss_func = obtain_initial_discriminator(disc_layers, device)
+    discriminator = do_x_training_steps(data_x=dataset_x, data_y=dataset_y, net=discriminator, optimizer=d_optimizer, 
+        loss_func=d_loss_func, steps=20000, batch_size=512, device=device)
+
+    # Save discriminator after training 
+    save_model(discriminator, model_name='classifier', sub_name=generation_index, dir_name='RESULTS')
+
+
+def train_and_save_discriminator(smiles_ls, pro_val, generation_index):
+    num_processors = multiprocessing.cpu_count()
+    dataset_x = obtain_discr_encoding(smiles_ls, num_processors=num_processors)
+    dataset_y = pro_val
+
+    disc_layers = [100, 10]
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cpu'
+
+    discriminator, d_optimizer, d_loss_func = obtain_initial_discriminator(disc_layers, device)
+    discriminator = do_x_training_steps(data_x=dataset_x, data_y=dataset_y, net=discriminator, optimizer=d_optimizer, 
+        loss_func=d_loss_func, steps=2000, batch_size=512, device=device)
+
+    save_model(discriminator, model_name='discriminator', sub_name=generation_index, dir_name='RESULTS')
+
+
+def obtain_model_pred(smiles_ls, model_name, generation_index, batch_size=16384): 
     predictions = []
-
-    device = get_device(use_gpu)
-    data_x = obtain_features(smi_list, num_workers=num_workers)
-    data_x = torch.tensor(data_x, device=device, dtype=torch.float)
-    loader = DataLoader(TensorDataset(data_x), batch_size=batch_size)
-
+    model = load_saved_model(model_name=model_name, dir_name='RESULTS', sub_name=generation_index) 
+    num_processors = multiprocessing.cpu_count()
+    data_x = obtain_discr_encoding(smiles_ls, num_processors=num_processors)
     num_batches = -(-data_x.shape[0] // batch_size)     # ceil division
-
     print('Number of batches: ', num_batches)
-    with torch.no_grad():
-        for i, x in enumerate(loader): 
-            print('        Predicting Batch: {}/{}'.format(i, num_batches))
-            outputs = net(x[0])
-            out_    = outputs.detach().cpu().numpy()
-            predictions.append(out_)
+    splits = [i*batch_size for i in range(1, num_batches)]
+
+    x_batch = np.array_split(data_x, splits)
     
-    predictions = np.concatenate(predictions, axis=0)   # concatenate in the batch axis
+    for i, x in enumerate(x_batch): 
+        if i % 1 == 0: 
+            print('        Predicting Batch: {}/{}'.format(i, num_batches))
+        x  = torch.tensor(x.astype(np.float32), device='cpu')
+        outputs = model(x)
+        out_    = outputs.detach().cpu().numpy()
+        predictions.extend( np.squeeze(out_).tolist() )
 
     return predictions
 
