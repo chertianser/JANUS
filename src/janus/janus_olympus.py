@@ -14,7 +14,11 @@ from olympus.scalarizers import Scalarizer
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.Crippen import MolLogP, MolMR
-from SAS_calculator.sascorer import calculateScore
+from rdkit.Chem import RDConfig
+import os
+import sys
+sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
+from sascorer import calculateScore
 import random
 
 
