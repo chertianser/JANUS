@@ -99,12 +99,20 @@ def redox_potential(elements, coordinates, i, m):
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
-        
-
+    # CT: compute only reduced structure to get RSS
+    try:
+        args = "xtb smi.xyz --chrg " + str(chrg_red) + " --uhf 1 --opt --norestart --alpb water"
+        with open(cwd / "red.txt", "w") as file:
+            subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=file, timeout=300)
+    except subprocess.TimeoutExpired:
+        redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
+        return redox_pot, max_norm_spin, max_spin_idx
     # iv. Extract free energy from XTB output files
     # TODO: is there a way to directly extract the total free energy without re-opening the file?
+    '''
     with open(cwd / "ox.txt", "r") as file:
         ox = file.read()
+    '''
     with open(cwd / "red.txt", "r") as file:
         red = file.read()
 
@@ -184,6 +192,127 @@ def redox_potential(elements, coordinates, i, m):
         redox_pot = (float(gibbs_ox) - float(gibbs_red))*27.2114-4.846-4.281
     
     return redox_pot, max_norm_spin, max_spin_idx
+
+def radical_stability_score(elements, coordinates, i, m):
+    # TODO: what does 'i' mean for JANUS? Just use placeholder 0 for now
+    # Maybe delete created folder after each iteration?
+    # Defining directory
+    cwd = Path.cwd() / f"{i}"
+    cwd.mkdir()
+
+    # Defining environment such that XTB doesn't use more than 1 core
+    env = dict(os.environ)
+    env["OMP_NUM_THREADS"] = "1,1"
+    env["MKL_NUM_THREADS"] = "1"
+    env["OMP_MAX_ACTIVE_LEVELS"] = "1"
+
+    # Timeout handler for subprocess calls
+    def rss_timeout_handler(cwd):
+        max_norm_spin = [float("nan")] * 6
+        max_spin_idx = [float("nan")] * 6
+
+        retry = True
+        try_num = 1
+        while (retry==True):
+            try:
+                shutil.rmtree(str(cwd))
+                retry = False
+            except:
+                try_num += 1
+                if try_num > 3:
+                    shutil.rmtree(str(cwd), ignore_errors=True)
+                    retry = False
+
+        return max_norm_spin, max_spin_idx
+
+    # i. Write XYZ file
+    write_xyz(cwd / "smi.xyz", elements, coordinates)
+
+    # ii. Run XTB on XYZ to produce optimal oxidized structure
+    chrg_ox = GetFormalCharge(m)
+    chrg_red = chrg_ox - 1
+
+    # CT: compute only reduced structure to get RSS
+    try:
+        args = "xtb smi.xyz --chrg " + str(chrg_red) + " --uhf 1 --opt --norestart --alpb water"
+        with open(cwd / "red.txt", "w") as file:
+            subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=file, timeout=300)
+    except subprocess.TimeoutExpired:
+        max_norm_spin, max_spin_idx = rss_timeout_handler(cwd)
+        return max_norm_spin, max_spin_idx
+    # iv. Extract free energy from XTB output files
+    # TODO: is there a way to directly extract the total free energy without re-opening the file?
+    with open(cwd / "red.txt", "r") as file:
+        red = file.read()
+
+    # v. Compute PM7 spin density from optimized reduced structure
+    try:
+        # xtbopt.xyz here is from the reduced calculation
+        args = "obabel -ixyz xtbopt.xyz -omop -O pm7.mop"
+        # Convert optimized xyz to mopac file format
+        subprocess.run([args], shell=True, env=env, cwd=cwd, timeout=100)
+    except subprocess.TimeoutExpired:
+        max_norm_spin, max_spin_idx = rss_timeout_handler(cwd)
+        return max_norm_spin, max_spin_idx
+
+    try:
+        # Inputs parameters for MOPAC calculation
+        args = "sed -i '1c PM7 CHARGE\={} 1SCF' pm7.mop".format(chrg_red)
+        subprocess.run([args], shell=True, env=env, cwd=cwd, timeout=100)
+    except subprocess.TimeoutExpired:
+        max_norm_spin, max_spin_idx = rss_timeout_handler(cwd)
+        return max_norm_spin, max_spin_idx
+
+    try:
+        # Run MOPAC
+        args = "mopac pm7.mop"
+        subprocess.run([args], shell=True, env=env, cwd=cwd,timeout=100)
+    except subprocess.TimeoutExpired:
+        max_norm_spin, max_spin_idx = rss_timeout_handler(cwd)
+        return max_norm_spin, max_spin_idx
+
+    with open(cwd / "pm7.out", "r") as file:
+        spin = file.read() 
+
+    spin_dict = {}
+    # @Nat: I am not sure how you want to error handle MOPAC
+    if (len(re.findall("JOB ENDED NORMALLY", spin)) != 0):
+        reg = r'(?=ATOMIC ORBITAL SPIN POPULATIONS)([\s\S]*?)(?=JOB ENDED NORMALLY)'
+        # Extract area of file where spin information is
+        m = re.findall(reg, spin)[0].splitlines()[4:-4] 
+        # Remove all spins related to hydrogen
+        m = [x for x in m if "H" not in x]
+
+        for ele in m:
+            # Extract element, atom number and spin density
+            tmp = ele.split()[0:3]
+            # Zero-index: 1C becomes 0C
+            new_key = str(int(tmp[0])-1) + tmp[1]
+            # {'0C' : -0.1234}
+            spin_dict[new_key] = tmp[2]
+
+        # I can propose that we use the Paton way of normalizing the spin here and output max spin
+        # All spins are made absolute, summed then normalized
+        spin_norm = 0
+        norm_spin_dict = {}
+        for val in spin_dict.values():
+            spin_norm += abs(float(val))
+        
+        for key in spin_dict.keys():
+            norm_spin_dict[key] = abs(float(spin_dict[key]))/spin_norm
+
+        # Taking top 6 spin densities, indices
+        values = list(norm_spin_dict.values())
+        max_spin_idx = np.argsort(values)[::-1][:6]
+        max_norm_spin = np.array(values)[max_spin_idx]
+    else:
+        max_norm_spin = [float("nan")] * 6
+        max_spin_idx = [float("nan")] * 6
+
+    shutil.rmtree(str(cwd))
+    
+    return max_norm_spin, max_spin_idx
+
 # %%
 def buried_vol(elements, coordinates, max_spin_idx):
     # i. Convert to Paton's version of Bondi radii
@@ -315,6 +444,108 @@ def fitness_function(smiles: str) -> float:
         print(smiles, '\t--------------------failed--------------------')
         return (10000,-1000,1000,1000)       # for maximizing the objective (minimizing the function)
 
+def expt1_fitness_function(smiles: str) -> float:
+    try: 
+        # 1) Stitching diquat from pyridine
+        m, s = stitch_diquat(smiles)
+
+        # 2) Converting diquat smiles to xyz
+        try:
+            ce = conformer.ConformerEnsemble.from_rdkit(s, optimize="MMFF94")
+            ce.prune_rmsd()
+            # finds, uses lowest energy conformation
+            ce.sort()
+            conformation = ce[0]
+            elements = ce.elements
+            coordinates = conformation.coordinates
+        except:
+            print("Smile: {0}, Conformer Search FAILED".format(s))
+            return -1000 
+
+        # 3) Computing RSS
+        i = abs(int(100000 * gauss(0,1)))
+        max_spin, max_spin_idx = radical_stability_score(elements, coordinates, i, m)
+        
+        if (float("nan") in max_spin) or (float("nan") in max_spin_idx):
+            return -1000
+        
+        # 4) Computing RSS for each of top 6 spins, taking minimum
+        rss_vals = []
+        for i_spin in range(len(max_spin)):
+            bv_percent = buried_vol(elements, coordinates, max_spin_idx[i_spin]) # MORFEUS uses 1 indexing
+            rss = bv_percent + 50 * (1 - max_spin[i_spin])
+            rss_vals.append(rss)
+        rss_val = min(rss_vals)
+        print(smiles, rss_val)
+
+        return rss_val
+    except:
+        print(smiles, '\t--------------------failed--------------------')
+        return -1000       # for maximizing the objective (minimizing the function)
+
+def expt1_generate_params():
+    """
+    Parameters for initiating JANUS. The parameters here are picked based on prior 
+    experience by the authors of the paper. 
+    """
+
+    params_ = {}
+
+    # Record data from every generation in individual directories
+    params_["verbose_out"] = True
+
+    # Number of iterations that JANUS runs for:
+    params_["generations"] = 200  # 200
+
+    # The number of molecules for which fitness calculations are done, within each generation
+    params_["generation_size"] = 64  # 5000
+
+    # Location of file containing SMILES that will be user for the initial population.
+    # NOTE: number of smiles must be greater than generation size.
+    # params_["start_population"] = "./DATA/C#C_STONED_fixed_220505.txt"
+    params_["start_population"] = "./DATA/pyridines_80.txt"
+
+    # Number of molecules that are exchanged between the exploration and exploitation
+    # componenets of JANUS.
+    params_["num_exchanges"] = 5
+
+    # An option to generate fragments and use then when performing mutations.
+    # Fragments are generated using the SMILES provided for the starting population.
+    # The list of generated fragments is stored in './DATA/fragments_selfies.txt'
+    params_["use_fragments"] = True  # Set to true
+
+    # An option to use a classifier for sampling. If set to true, the trailed model
+    # is saved at the end of every generation in './RESULTS/'.
+    params_["use_NN_classifier"] = True  # Set this to true!
+
+    # Number of top molecules to conduct local search
+    params_["top_mols"] = 5
+
+    # Number of randomly sampled SELFIE strings from alphabet
+    params_["num_sample_frags_mutation"] = 100
+
+    # Number of samples from random mutations in exploration population
+    params_["explr_num_random_samples"] = 100
+
+    # Number of random mutations in exploration population
+    params_["explr_num_mutations"] = 100
+
+    # Number of samples from random mutations in exploitation population
+    params_["exploit_num_random_samples"] = 100
+
+    # Number of random mutations in exploitation population
+    params_["exploit_num_mutations"] = 100
+
+    # Number of random crossovers
+    params_["crossover_num_random_samples"] = 5  # 1
+
+    # Use discriminator to modify fitness
+    params_["use_NN_discriminator"] = False
+
+    # Optional filter to ensure mutations do not create unwanted molecular structures
+    params_["filter"] = True
+    print('params')
+    return params_
 def main():
     print('name=main')
     params = generate_params()
@@ -328,6 +559,29 @@ def main():
         work_dir='RESULTS', 
         num_workers = 128,
         fitness_function = fitness_function,
+        properties = properties,
+        objectives = objectives,
+        kind = kind,
+        supplement = supplement, 
+        **params
+    )
+
+    agent.run()
+    print('done!')
+
+def ct_experiment_1():
+    print('name=ct_experiment_1')
+    params = expt1_generate_params()
+
+    properties = ['rss']
+    objectives = ['max']
+    kind = 'Chimera'
+    supplement = [0]
+
+    agent = JANUS(
+        work_dir='RESULTS', 
+        num_workers = 64,
+        fitness_function = expt1_fitness_function,
         properties = properties,
         objectives = objectives,
         kind = kind,
