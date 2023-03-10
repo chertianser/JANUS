@@ -345,6 +345,7 @@ def generate_params():
     # Location of file containing SMILES that will be user for the initial population.
     # NOTE: number of smiles must be greater than generation size.
     # params_["start_population"] = "./DATA/C#C_STONED_fixed_220505.txt"
+    params_["start_population"] = None
     params_["start_population"] = "./DATA/pyridines_80.txt"
 
     # Number of molecules that are exchanged between the exploration and exploitation
