@@ -6,12 +6,8 @@ from rdkit.Chem import AllChem, RDConfig, Descriptors, rdChemReactions
 RDLogger.DisableLog("rdApp.*")
 
 import selfies
-import sys
 import pandas as pd
 import numpy as np
-
-# SAScore import
-from SAS_calculator.sascorer import calculateScore
 
 # Buried volume imports
 from morfeus import conformer, BuriedVolume, read_xyz
@@ -26,6 +22,9 @@ import shutil
 from random import gauss  
 import time
 
+# SAScore import
+sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
+from sascorer import calculateScore
 
 # %%
 def stitch_diquat(pyr_smi):
@@ -109,10 +108,8 @@ def redox_potential(elements, coordinates, i, m):
         return redox_pot, max_norm_spin, max_spin_idx
     # iv. Extract free energy from XTB output files
     # TODO: is there a way to directly extract the total free energy without re-opening the file?
-    '''
     with open(cwd / "ox.txt", "r") as file:
         ox = file.read()
-    '''
     with open(cwd / "red.txt", "r") as file:
         red = file.read()
 
@@ -498,7 +495,7 @@ def expt1_generate_params():
     params_["generations"] = 200  # 200
 
     # The number of molecules for which fitness calculations are done, within each generation
-    params_["generation_size"] = 64  # 5000
+    params_["generation_size"] = 48  # 5000
 
     # Location of file containing SMILES that will be user for the initial population.
     # NOTE: number of smiles must be greater than generation size.
@@ -580,7 +577,7 @@ def ct_experiment_1():
 
     agent = JANUS(
         work_dir='RESULTS', 
-        num_workers = 64,
+        num_workers = 48,
         fitness_function = expt1_fitness_function,
         properties = properties,
         objectives = objectives,
