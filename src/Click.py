@@ -26,6 +26,8 @@ import time
 sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
 from sascorer import calculateScore
 
+from cheapocrest_python import conformer_search
+
 # %%
 def stitch_diquat(pyr_smi):
     stitch_pyridines = rdChemReactions.ReactionFromSmarts(
@@ -337,12 +339,11 @@ def generate_params():
     params_["generations"] = 200  # 200
 
     # The number of molecules for which fitness calculations are done, within each generation
-    params_["generation_size"] = 50  # 5000
+    params_["generation_size"] = 48  # 5000
 
     # Location of file containing SMILES that will be user for the initial population.
     # NOTE: number of smiles must be greater than generation size.
     # params_["start_population"] = "./DATA/C#C_STONED_fixed_220505.txt"
-    params_["start_population"] = None
     params_["start_population"] = "./DATA/pyridines_80.txt"
 
     # Number of molecules that are exchanged between the exploration and exploitation
@@ -442,108 +443,6 @@ def fitness_function(smiles: str) -> float:
         print(smiles, '\t--------------------failed--------------------')
         return (10000,-1000,1000,1000)       # for maximizing the objective (minimizing the function)
 
-def expt1_fitness_function(smiles: str) -> float:
-    try: 
-        # 1) Stitching diquat from pyridine
-        m, s = stitch_diquat(smiles)
-
-        # 2) Converting diquat smiles to xyz
-        try:
-            ce = conformer.ConformerEnsemble.from_rdkit(s, optimize="MMFF94")
-            ce.prune_rmsd()
-            # finds, uses lowest energy conformation
-            ce.sort()
-            conformation = ce[0]
-            elements = ce.elements
-            coordinates = conformation.coordinates
-        except:
-            print("Smile: {0}, Conformer Search FAILED".format(s))
-            return -1000 
-
-        # 3) Computing RSS
-        i = abs(int(100000 * gauss(0,1)))
-        max_spin, max_spin_idx = radical_stability_score(elements, coordinates, i, m)
-        
-        if (float("nan") in max_spin) or (float("nan") in max_spin_idx):
-            return -1000
-        
-        # 4) Computing RSS for each of top 6 spins, taking minimum
-        rss_vals = []
-        for i_spin in range(len(max_spin)):
-            bv_percent = buried_vol(elements, coordinates, max_spin_idx[i_spin]) # MORFEUS uses 1 indexing
-            rss = bv_percent + 50 * (1 - max_spin[i_spin])
-            rss_vals.append(rss)
-        rss_val = min(rss_vals)
-        print(smiles, rss_val)
-
-        return rss_val
-    except:
-        print(smiles, '\t--------------------failed--------------------')
-        return -1000       # for maximizing the objective (minimizing the function)
-
-def expt1_generate_params():
-    """
-    Parameters for initiating JANUS. The parameters here are picked based on prior 
-    experience by the authors of the paper. 
-    """
-
-    params_ = {}
-
-    # Record data from every generation in individual directories
-    params_["verbose_out"] = True
-
-    # Number of iterations that JANUS runs for:
-    params_["generations"] = 200  # 200
-
-    # The number of molecules for which fitness calculations are done, within each generation
-    params_["generation_size"] = 48  # 5000
-
-    # Location of file containing SMILES that will be user for the initial population.
-    # NOTE: number of smiles must be greater than generation size.
-    # params_["start_population"] = "./DATA/C#C_STONED_fixed_220505.txt"
-    params_["start_population"] = "./DATA/pyridines_80.txt"
-
-    # Number of molecules that are exchanged between the exploration and exploitation
-    # componenets of JANUS.
-    params_["num_exchanges"] = 5
-
-    # An option to generate fragments and use then when performing mutations.
-    # Fragments are generated using the SMILES provided for the starting population.
-    # The list of generated fragments is stored in './DATA/fragments_selfies.txt'
-    params_["use_fragments"] = True  # Set to true
-
-    # An option to use a classifier for sampling. If set to true, the trailed model
-    # is saved at the end of every generation in './RESULTS/'.
-    params_["use_NN_classifier"] = True  # Set this to true!
-
-    # Number of top molecules to conduct local search
-    params_["top_mols"] = 5
-
-    # Number of randomly sampled SELFIE strings from alphabet
-    params_["num_sample_frags_mutation"] = 100
-
-    # Number of samples from random mutations in exploration population
-    params_["explr_num_random_samples"] = 100
-
-    # Number of random mutations in exploration population
-    params_["explr_num_mutations"] = 100
-
-    # Number of samples from random mutations in exploitation population
-    params_["exploit_num_random_samples"] = 100
-
-    # Number of random mutations in exploitation population
-    params_["exploit_num_mutations"] = 100
-
-    # Number of random crossovers
-    params_["crossover_num_random_samples"] = 5  # 1
-
-    # Use discriminator to modify fitness
-    params_["use_NN_discriminator"] = False
-
-    # Optional filter to ensure mutations do not create unwanted molecular structures
-    params_["filter"] = True
-    print('params')
-    return params_
 def main():
     print('name=main')
     params = generate_params()
@@ -555,31 +454,8 @@ def main():
 
     agent = JANUS(
         work_dir='RESULTS', 
-        num_workers = 128,
+        num_workers = 48, # should be number of tasks available
         fitness_function = fitness_function,
-        properties = properties,
-        objectives = objectives,
-        kind = kind,
-        supplement = supplement, 
-        **params
-    )
-
-    agent.run()
-    print('done!')
-
-def ct_experiment_1():
-    print('name=ct_experiment_1')
-    params = expt1_generate_params()
-
-    properties = ['rss']
-    objectives = ['max']
-    kind = 'Chimera'
-    supplement = [0]
-
-    agent = JANUS(
-        work_dir='RESULTS', 
-        num_workers = 48,
-        fitness_function = expt1_fitness_function,
         properties = properties,
         objectives = objectives,
         kind = kind,
