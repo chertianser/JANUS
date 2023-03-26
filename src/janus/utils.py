@@ -42,7 +42,7 @@ def sanitize_smiles(smi):
     """
     try:
         mol = smi2mol(smi, sanitize=True)
-        smi_canon = mol2smi(mol, isomericSmiles=False, canonical=True)
+        smi_canon = mol2smi(mol, isomericSmiles=True, canonical=True)
         return smi_canon
     except:
         return None
