@@ -208,7 +208,7 @@ def generate_params():
     params_["generations"] = 200  # 200
 
     # The number of molecules for which fitness calculations are done, within each generation
-    params_["generation_size"] = 48  # 5000
+    params_["generation_size"] = 64  # 5000
 
     # Location of file containing SMILES that will be user for the initial population.
     # NOTE: number of smiles must be greater than generation size.
@@ -257,7 +257,7 @@ def generate_params():
     print('params')
     return params_
 
-def fitness_function(smiles: str) -> float:
+def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
     try: 
         # 1) Calculating SAScore based on pyridine to discard unsynthesizable molecules
         pyr_mol = Chem.MolFromSmiles(smiles)
@@ -267,9 +267,13 @@ def fitness_function(smiles: str) -> float:
         m, s = stitch_diquat(smiles)
 
         i = abs(int(100000 * gauss(0,1)))
-        
-        cwd = Path.cwd() / f"{i}"
-        cwd.mkdir()
+        if save_dir == None: 
+            cwd = Path.cwd() / f"{i}"
+        else:
+            cwd = os.path.join(save_dir, f"{i}")
+        if not os.path.exists(cwd):
+            os.makedirs(cwd)
+        print("saving to dir.....", save_dir)
         os.chdir(cwd)
 
         # 3) Converting diquat smiles to xyz
@@ -309,11 +313,16 @@ def fitness_function(smiles: str) -> float:
         
         #fitnesses = (redox_val, rss_val, sas_val, size_val)
         fitnesses = (redox_dft, rss_val, sas_val, size_val)
-        os.chdir('..')
+        #os.chdir('..')
         return fitnesses
     except:
         print(smiles, '\t--------------------failed--------------------')
         return (10000,-1000,1000,1000)       # for maximizing the objective (minimizing the function)
+    if save_dir==None:
+        os.chdir('..')
+    else:
+        os.chdir(orig_dir)
+        print("back to dir.....", orig_dir)
 
 def main():
     print('name=main')
@@ -325,8 +334,8 @@ def main():
     supplement = [0.0025,83,4,0]
 
     agent = JANUS(
-        work_dir='RESULTS', 
-        num_workers = 48, # should be number of tasks available
+        work_dir='RESULTS_verbose', 
+        num_workers = 64, # should be number of tasks available
         fitness_function = fitness_function,
         properties = properties,
         objectives = objectives,

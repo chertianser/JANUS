@@ -34,6 +34,8 @@ class JANUS():
         print("initialising janus")
         # set all class variables
         self.work_dir = work_dir
+
+
         self.fitness_function = fitness_function
         self.custom_filter = custom_filter
         self.alphabet = alphabet
@@ -49,6 +51,20 @@ class JANUS():
 
         for key, val in kwargs.items():
             setattr(self, key, val)
+        self.home_dir = os.getcwd()
+        self.work_dir = os.path.join(self.home_dir, self.work_dir)
+        print("home directory", self.home_dir)
+        if self.verbose_out:
+            if not os.path.isdir(self.work_dir):
+                os.mkdir(self.work_dir)
+            output_dir = os.path.join(self.work_dir, f'init_DATA')
+            if not os.path.isdir(output_dir):
+                os.mkdir(output_dir)
+            fitnessfunc_save_dir = os.path.join(output_dir, 'init_FF')
+            if not os.path.isdir(fitnessfunc_save_dir):
+                os.mkdir(fitnessfunc_save_dir)
+        else:
+            fitnessfunc_save_dir=None
 
         print("getting initial pop + fitness")
         # get initial population and fitnesses
@@ -60,10 +76,14 @@ class JANUS():
                     init_smiles.append(line)
 
         # mpi4py to parallelize fitness function calls
+        save_dir_list = [fitnessfunc_save_dir for _ in range(len(init_smiles))]
+        home_dir_list = [self.home_dir for _ in range(len(init_smiles))]
         with MPIPoolExecutor(self.num_workers) as executor:
             init_fitness = list(executor.map(
                 self.fitness_function, 
-                init_smiles
+                init_smiles,
+                save_dir_list,
+                home_dir_list
             )
         )
         
@@ -167,8 +187,10 @@ class JANUS():
                 output_dir = os.path.join(self.work_dir, f'{gen_}_DATA')
                 if not os.path.isdir(output_dir):
                     os.mkdir(output_dir)
+                fitnessfunc_save_dir = os.path.join(output_dir, f'{gen_}_FF')
             else:
                 nn_tag = None       # do not save in subfolder named by generation index
+                fitnessfunc_save_dir=None
 
             print(f"On generation {gen_}/{self.generations}")
 
@@ -294,10 +316,14 @@ class JANUS():
                 else:
                     new_pop_smiles.append(smi)
 
+            save_dir_list = [fitnessfunc_save_dir for _ in range(len(new_pop_smiles))]
+            home_dir_list = [self.home_dir for _ in range(len(new_pop_smiles))]
             with MPIPoolExecutor(self.num_workers) as executor:
                 new_pop_fitness = list(executor.map(
                     self.fitness_function, 
-                    new_pop_smiles
+                    new_pop_smiles,
+                    save_dir_list,
+                    home_dir_list
                 )
             )
             # FIX FORMATTING? np.array vs tuple
@@ -399,7 +425,9 @@ class JANUS():
             with MPIPoolExecutor(self.num_workers) as executor:
                 new_loc_fitness = list(executor.map(
                     self.fitness_function, 
-                    new_loc_smiles
+                    new_loc_smiles,
+                    save_dir_list, 
+                    home_dir_list
                 )
             )
             # FIX FORMATTING? np.array vs tuple
