@@ -121,8 +121,8 @@ class JANUS():
         self.population = init_smiles[:self.generation_size]
         self.fitness = init_fitness[:self.generation_size]
 
-        if not os.path.isdir("./RESULTS/"):
-            os.mkdir("./RESULTS/")
+        #if not os.path.isdir("./RESULTS/"):
+        #    os.mkdir("./RESULTS/")
 
         self.smiles_collector = {}
         uniq_pop, idx, counts = np.unique(self.population, return_index = True, return_counts = True)
@@ -356,33 +356,27 @@ class JANUS():
             scalarizer_sort = np.array(scalarizer_vals)[idx_sort]
 
             if self.verbose_out:
-                with open("./RESULTS/" + str(gen_) + "_DATA/fitness_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in fitness_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "fitness_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in fitness_sort])
                 # ---- NAT: MULTIOPT PRINTOUT
-                with open("./RESULTS/" + str(gen_) + "_DATA/scalarizer_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in scalarizer_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "scalarizer_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in scalarizer_sort])
             else:
-                with open("./RESULTS/fitness_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in fitness_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.workdir, "fitness_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in fitness_sort])
                 # ---- NAT: MULTIOPT PRINTOUT
-                with open("./RESULTS/scalarizer_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in scalarizer_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.workdir, "scalarizer_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in scalarizer_sort])
 
             # this population is sort by modified fitness, if active
             # ---- NAT - Sorting here is now based on scalarizer values
             population_sort = np.array(self.population)[idx_sort]
             if self.verbose_out:
-                with open("./RESULTS/" + str(gen_) + "_DATA/population_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in population_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "population_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in population_sort])
             else:
-                with open("./RESULTS/population_explore.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in population_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, "population_explore.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in population_sort])
             
             print("Step 2 explore sort:", population_sort,fitness_sort)
             # STEP 3: CONDUCT LOCAL SEARCH ON EXPLOITATION SET:
@@ -432,7 +426,7 @@ class JANUS():
             )
             # FIX FORMATTING? np.array vs tuple
             new_loc_fitness = np.array(new_loc_fitness)
-
+            print(new_loc_fitness)
             for new_loc_i in range(len(new_loc_smiles)):
                 f = new_loc_fitness[new_loc_i] 
                 self.fitness_loc.append(f)
@@ -461,34 +455,24 @@ class JANUS():
             scalarizer_sort = np.array(scalarizer_vals)[idx_sort]
 
             if self.verbose_out:
-                with open(
-                    "./RESULTS/" + str(gen_) + "_DATA/fitness_local_search.txt", "w"
-                ) as f:
-                    f.writelines(["{} ".format(x) for x in fitness_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "fitness_local_search.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in fitness_sort])
                 # ---- NAT: MULTIOPT PRINTOUT
-                with open("./RESULTS/" + str(gen_) + "_DATA/scalarizer_local_search.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in scalarizer_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "scalarizer_local_search.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in scalarizer_sort])
             else:
-                with open("./RESULTS/fitness_local_search.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in fitness_sort])
-                    f.writelines(["\n"])
-                with open("./RESULTS/scalarizer_local_search.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in scalarizer_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, "fitness_local_search.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in fitness_sort])
+                with open(os.path.join(self.work_dir, "scalarizer_local_search.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in scalarizer_sort])
 
             population_sort = np.array(self.population_loc)[idx_sort]
             if self.verbose_out:
-                with open(
-                    "./RESULTS/" + str(gen_) + "_DATA/population_local_search.txt", "w"
-                ) as f:
-                    f.writelines(["{} ".format(x) for x in population_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "population_local_search.txt"),"w") as f:
+                    f.writelines(["{} \n".format(x) for x in population_sort])
             else:
-                with open("./RESULTS/population_local_search.txt", "w") as f:
-                    f.writelines(["{} ".format(x) for x in population_sort])
-                    f.writelines(["\n"])
+                with open(os.path.join(self.work_dir, "population_local_search.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in population_sort])
             
             print("Step 4 local sort:", population_sort, fitness_sort)
             # STEP 5: EXCHANGE THE POPULATIONS:
@@ -530,16 +514,13 @@ class JANUS():
             fitness_sort = np.array(self.fitness)[idx_sort]
             
             # verify population against gen_best
-            with open(
-                    "./RESULTS/" + str(gen_) + "_DATA/final_gen_fitness.txt", "w"
-                ) as f:
-                    f.writelines(["{} ".format(x) for x in fitness_sort])
-                    f.writelines(["\n"])
+            with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "final_gen_fitness.txt"), "w") as f:
+                    f.writelines(["{} \n".format(x) for x in fitness_sort])
 
             ### ---- NAT: END MULTIOPT ----
 
             # write best molecule with best fitness
-            with open("./RESULTS" + "/generation_all_best.txt", "a+") as f:
+            with open(os.path.join(self.work_dir, "generation_all_best.txt"), "a+") as f:
                 f.writelines(f"Gen:{gen_}, {self.population[fit_all_best]}, {self.fitness[fit_all_best]} \n")
 
             if gen_ == self.generations - 1:
@@ -553,14 +534,14 @@ class JANUS():
                 scalarizer_sort = np.array(scalarizer_vals)[idx_sort]
                 smiles_sort = np.array(all_smiles)[idx_sort]
 
-                with open("./RESULTS" + "/smiles_collector.txt", "a+") as f:
+                with open(os.path.join(self.work_dir, "smiles_collector.txt"), "a+") as f:
                     f.writelines(["{},{},{} \n".format(i,x,y) for i,x,y in zip(range(len(smiles_sort)),smiles_sort,fitness_sort)])
 
                 csv_vals = []
                 for j in range(len(smiles_sort)):
                     csv_vals.append((j,smiles_sort[j],fitness_sort[j][0],fitness_sort[j][1],fitness_sort[j][2],fitness_sort[j][3]))
                 df = pd.DataFrame(csv_vals, columns =['i','smi','redox','rss','sas','heavyatoms'])
-                df.to_csv("./RESULTS" + "/smiles_collector.csv")
+                df.to_csv(os.path.join(self.work_dir, "smiles_collector.csv"))
 
 
 
