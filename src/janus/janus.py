@@ -328,7 +328,6 @@ class JANUS():
             )
             # FIX FORMATTING? np.array vs tuple
             new_pop_fitness = np.array(new_pop_fitness)
-
             for new_pop_i in range(len(new_pop_smiles)):
                 f = new_pop_fitness[new_pop_i]
                 self.fitness.append(f)
@@ -416,6 +415,8 @@ class JANUS():
             # ---- Nat: START PARALLELISING 386 - 395 ----
             new_loc_smiles = self.population_loc
  
+            save_dir_list = [fitnessfunc_save_dir for _ in range(len(new_loc_smiles))]
+            home_dir_list = [self.home_dir for _ in range(len(new_loc_smiles))]
             with MPIPoolExecutor(self.num_workers) as executor:
                 new_loc_fitness = list(executor.map(
                     self.fitness_function, 
@@ -426,7 +427,6 @@ class JANUS():
             )
             # FIX FORMATTING? np.array vs tuple
             new_loc_fitness = np.array(new_loc_fitness)
-            print(new_loc_fitness)
             for new_loc_i in range(len(new_loc_smiles)):
                 f = new_loc_fitness[new_loc_i] 
                 self.fitness_loc.append(f)
