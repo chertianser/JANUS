@@ -84,7 +84,7 @@ def redox_potential(elements, coordinates, m):
         args = "xtb crest_best.xyz --chrg " + str(chrg_ox) + " --uhf 0 --ohess --norestart --alpb water"
         with open(cwd / "ox.txt", "w") as file:
             #subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=file, timeout=300)
-            subprocess.run([args], shell=True, env=env, stdout=file, timeout=300)
+            subprocess.run([args], shell=True, env=env, stdout=file, stderr=subprocess.STDOUT, timeout=300)
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
@@ -93,7 +93,7 @@ def redox_potential(elements, coordinates, m):
     try:
         args = "xtb xtbopt.xyz --chrg " + str(chrg_red) + " --uhf 1 --ohess --norestart --alpb water"
         with open(cwd / "red.txt", "w") as file:
-            subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=file, timeout=300)
+            subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=file, stderr=subprocess.STDOUT, timeout=300)
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
@@ -109,7 +109,7 @@ def redox_potential(elements, coordinates, m):
         # xtbopt.xyz here is from the reduced calculation
         args = "obabel -ixyz xtbopt.xyz -omop -O pm7.mop"
         # Convert optimized xyz to mopac file format
-        subprocess.run([args], shell=True, env=env, cwd=cwd, timeout=100)
+        subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=100)
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
@@ -117,7 +117,7 @@ def redox_potential(elements, coordinates, m):
     try:
         # Inputs parameters for MOPAC calculation
         args = "sed -i '1c PM7 CHARGE\={} 1SCF' pm7.mop".format(chrg_red)
-        subprocess.run([args], shell=True, env=env, cwd=cwd, timeout=100)
+        subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=100)
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
@@ -125,7 +125,7 @@ def redox_potential(elements, coordinates, m):
     try:
         # Run MOPAC
         args = "mopac pm7.mop"
-        subprocess.run([args], shell=True, env=env, cwd=cwd,timeout=100)
+        subprocess.run([args], shell=True, env=env, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=100)
     except subprocess.TimeoutExpired:
         redox_pot, max_norm_spin, max_spin_idx = timeout_handler(cwd)
         return redox_pot, max_norm_spin, max_spin_idx
