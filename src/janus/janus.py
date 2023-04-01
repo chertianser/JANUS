@@ -570,12 +570,23 @@ class JANUS():
             A list of SMILES that will be mutated/crossed-oved for forming the subsequent generation.
 
         """
-
+        # 
+        # Remove everything that is less than zero
+        # Within reduced list get the top global ratio of high performers
+        # If top global ratio is too small set this as the keep_smiles length
+        # Move everything else into replace_smiles
+        keep_ratio = 0.2
         fitness = np.array(fitness)
         idx_sort = fitness.argsort()[::-1]  # Best -> Worst
-        keep_ratio = 0.2
         keep_idx = int(len(list(idx_sort)) * keep_ratio)
-        try:
+        if len(np.where(fitness<=0)[0]) >= keep_idx:
+            keep_smiles = [population[i] for i in idx_sort[:keep_idx]]
+            replace_smiles = [population[i] for i in idx_sort[keep_idx:]]
+        else:
+            keep_smiles = population[np.where(fitness<=0)]
+            replace_smiles = population[np.where(fitness>0)]
+        # TODO: Eventually implement sampling with replacement for keep_smiles and replace_smiles
+        if False:
 
             F_50_val = fitness[idx_sort[keep_idx]]
             F_25_val = np.array(fitness) - F_50_val
@@ -603,9 +614,9 @@ class JANUS():
 
             if keep_smiles == [] or replace_smiles == []:
                 raise Exception("Badly sampled population!")
-        except:
-            keep_smiles = [population[i] for i in idx_sort[:keep_idx]]
-            replace_smiles = [population[i] for i in idx_sort[keep_idx:]]
+        #except:
+        #keep_smiles = [population[i] for i in idx_sort[:keep_idx]]
+        #replace_smiles = [population[i] for i in idx_sort[keep_idx:]]
 
         return keep_smiles, replace_smiles
 
