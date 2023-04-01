@@ -168,8 +168,6 @@ def redox_potential(elements, coordinates, m):
         max_norm_spin = [float("nan")] * 6
         max_spin_idx = [float("nan")] * 6
 
-    shutil.rmtree(str(cwd))
-
     # vi. Compute redox potential using free energies
     # check if optimization completed successfully, else output NaN for object
     if len(re.findall("finished run on.*", red)) == 0 or len(re.findall("finished run on.*", ox)) == 0:
@@ -213,7 +211,8 @@ def generate_params():
     # Location of file containing SMILES that will be user for the initial population.
     # NOTE: number of smiles must be greater than generation size.
     # params_["start_population"] = "./DATA/C#C_STONED_fixed_220505.txt"
-    params_["start_population"] = "./DATA/pyridines_80.txt"
+    #params_["start_population"] = "./DATA/pyridines_80.txt"
+    params_["start_population"] = "./DATA/topfitness_pubchem_64_norss_pyrs.txt"
 
     # Number of molecules that are exchanged between the exploration and exploitation
     # componenets of JANUS.
@@ -258,7 +257,7 @@ def generate_params():
     return params_
 
 def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
-    try: 
+    try:
         # 1) Calculating SAScore based on pyridine to discard unsynthesizable molecules
         pyr_mol = Chem.MolFromSmiles(smiles)
         sas_val = calculateScore(pyr_mol)
@@ -273,7 +272,7 @@ def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
             cwd = os.path.join(save_dir, f"{i}")
         if not os.path.exists(cwd):
             os.makedirs(cwd)
-        print("saving to dir.....", save_dir)
+        #print("saving {} to dir {}".format(s, cwd))
         os.chdir(cwd)
 
         # 3) Converting diquat smiles to xyz
@@ -288,7 +287,6 @@ def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
 
         # 4) Computing redox potential, radical center with XTB
         redox, max_spin, max_spin_idx = redox_potential(elements, coordinates, m)
-        
         #print(smiles, redox, max_spin, max_spin_idx)
         if (redox == float("nan")) or (redox == -404) or (float("nan") in max_spin) or (float("nan") in max_spin_idx):
         #if (redox == float("nan")) or (redox == -404) or (max_spin[0] == float("nan")) or (max_spin_idx[0] == float("nan")):
@@ -306,13 +304,17 @@ def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
             rss = bv_percent + 50 * (1 - max_spin[i_spin])
             rss_vals.append(rss)
         rss_val = min(rss_vals)
-        print(smiles, redox_dft, rss_val)
 
         # 7) Computing number of heavy atoms in pyridine molecules
         size_val = pyr_mol.GetNumHeavyAtoms()
         
         #fitnesses = (redox_val, rss_val, sas_val, size_val)
         fitnesses = (redox_dft, rss_val, sas_val, size_val)
+        print(save_dir, s, smiles, fitnesses)
+        retain = ['conformers_obabel.xyz', 'crest_ensemble.xyz', 'ox.txt', 'pm7.out', 'red.txt', 'stdout.txt']
+        for item in os.listdir(os.getcwd()):
+            if item not in retain:
+                os.remove(item)
         #os.chdir('..')
         return fitnesses
     except:
