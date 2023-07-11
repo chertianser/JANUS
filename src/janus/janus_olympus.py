@@ -122,11 +122,14 @@ def scalarize_and_sort(scalarizer, fitness_list):
         Scalarizer values, original indices, 0 (good) to 1 (bad)
     """    
     mod_list = np.copy(fitness_list)
+    print(mod_list)
     target = -1
     for i in range(len(fitness_list)):
         redox_dft = fitness_list[i][0]
         redox_val = (redox_dft - target)**2 # parabolic, rewards proximity to target value
         redox_val = redox_val * 1000
+        mod_list[i] = list(mod_list[i])
+        print(mod_list[i], fitness_list[i])
         mod_list[i][0] = redox_val
     
     scalarizer_vals = scalarizer.scalarize(mod_list)
