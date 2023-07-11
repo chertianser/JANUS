@@ -42,6 +42,7 @@ def substructure_violations(mol):
         '[*-]', # Negatively charged any atom, this makes the ones above redundant
         '[#15;H]', # Phosphorous with hydrogen atom
         '[#15]', # Phosphorous atoms
+        '[#7;H]', # Nitrogen with hydrogen atom -- JUST ADDED !!!!!
         '[#7&X5]', # Pentavalent nitrogen
         '*=[#16;!R]', # Double bond to non-ring S
         '[#16&X3]', # Trivalent sulphur
@@ -60,6 +61,10 @@ def substructure_violations(mol):
         "[#5]", # Boron
         "[S;X2]", # non-aromatic sulfide
         "[c;$(c1nc(Br)cc([OH])c1),$(c1nc(Br)ccc([OH])1),$(c1nc(Br)c([OH])cc1),$(c1([OH])nc(Br)ccc1)]", # OH on pyridine ring
+        "[c;$(c1nc(Br)cc([F])c1),$(c1nc(Br)ccc([F])1),$(c1nc(Br)c([F])cc1),$(c1([F])nc(Br)ccc1)]", # F on pyridine ring
+        "[c;$(c1nc(Br)cc([Cl])c1),$(c1nc(Br)ccc([Cl])1),$(c1nc(Br)c([Cl])cc1),$(c1([Cl])nc(Br)ccc1)]", # Cl on pyridine ring
+        "[c;$(c1nc(Br)cc([Br])c1),$(c1nc(Br)ccc([Br])1),$(c1nc(Br)c([Br])cc1),$(c1([Br])nc(Br)ccc1)]", # Br on pyridine ring
+        "[c;$(c1nc(Br)cc([I])c1),$(c1nc(Br)ccc([I])1),$(c1nc(Br)c([I])cc1),$(c1([I])nc(Br)ccc1)]", # I on pyridine ring
         "[N;H1]([OH])", # hydroxylamine group
         "[OX2H][#6X3]=[#6]", # enol
         "[C;X3]=[N;X2]", # imine group
