@@ -24,8 +24,20 @@ import time
 sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
 from sascorer import calculateScore
 
+# SCScore
+cwd = os.getcwd()
+sys.path.append(os.path.join(cwd, "scscore"))
+#print(sys.path); exit()
+from scscore.standalone_model_numpy import SCScorer
+project_root = "scscore" # direct it to the scscore directory if you have it saved somewhere
+scscore_model = SCScorer()
+scscore_model.restore(os.path.join(project_root, 'models', 'full_reaxys_model_1024bool', 'model.ckpt-10654.as_numpy.json.gz'))
+
 from cheapocrest_python import cheapocrest_search
 
+import orfb.src.eval as gnn_eval
+GNN=None
+params=None
 # %%
 def stitch_diquat(pyr_smi):
     stitch_pyridines = rdChemReactions.ReactionFromSmarts(
@@ -253,17 +265,39 @@ def generate_params():
 
     # Optional filter to ensure mutations do not create unwanted molecular structures
     params_["filter"] = True
+    
+    params_['use_gnn'] = True
+    params_['gnn_chkpt'] = "orfb/models/redox_model" 
+
     print('params')
     return params_
 
-def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
-    try:
+def fitness_function(smiles: str, save_dir=None, orig_dir=None, diquat_smiles=None, redox_dft=None) -> float:
+    #try:
+    global params
+    params = generate_params()
+    print("params", params)
+    if diquat_smiles == None:
+        print(smiles, '\t--------------------failed--------------------')
+        return [10000,1000]
+        #return (10000,1000,1000)
+    else:
+        m, s = diquat_smiles
+    if True:
         # 1) Calculating SAScore based on pyridine to discard unsynthesizable molecules
+        print("a")
         pyr_mol = Chem.MolFromSmiles(smiles)
-        sas_val = calculateScore(pyr_mol)
+        #sas_val = calculateScore(pyr_mol)
+        sas_val = scscore_model.get_score_from_smi(smiles)[1]
+        print("b")
 
         # 2) Stitching diquat from pyridine
-        m, s = stitch_diquat(smiles)
+        #try:
+        #    m, s = stitch_diquat(smiles)
+        #except:
+        #    print(smiles, '\t--------------------failed--------------------')
+        #    return (10000,1000,1000)
+        print("b2", s, smiles)
 
         i = abs(int(100000 * gauss(0,1)))
         if save_dir == None: 
@@ -272,71 +306,97 @@ def fitness_function(smiles: str, save_dir=None, orig_dir=None) -> float:
             cwd = os.path.join(save_dir, f"{i}")
         if not os.path.exists(cwd):
             os.makedirs(cwd)
-        #print("saving {} to dir {}".format(s, cwd))
         os.chdir(cwd)
 
-        # 3) Converting diquat smiles to xyz
-        try:
-            with open('stdout.txt', 'a') as f:
-                with contextlib.redirect_stdout(f):
-                    cheapocrest_search(s, ff='uff', chrg=GetFormalCharge(m), nconfs=50, rescue='True', theory='gfnff', implicit='alpb', solvent='water')
-            elements, coordinates = read_xyz("crest_best.xyz")
-        except:
-            print("Smile: {0}, Conformer Search FAILED".format(s))
-            return (10000,-1000,1000,1000) 
+        print("b3", cwd, params)
 
         # 4) Computing redox potential, radical center with XTB
-        redox, max_spin, max_spin_idx = redox_potential(elements, coordinates, m)
-        #print(smiles, redox, max_spin, max_spin_idx)
-        if (redox == float("nan")) or (redox == -404) or (float("nan") in max_spin) or (float("nan") in max_spin_idx):
-        #if (redox == float("nan")) or (redox == -404) or (max_spin[0] == float("nan")) or (max_spin_idx[0] == float("nan")):
-            if redox == -404:
-                print("Molecule timed out: ", smiles)
-            return (10000,-1000,1000,1000) 
-        target = -1.23
-        redox_dft = 0.72460394 * redox - 0.2828738736384303 # linear regression for xtb -> dft
-        
-        # 5) Computing buried volume with MORFEUS
-        # 6) Computing RSS for each of top 6 spins, taking minimum
-        rss_vals = []
-        for i_spin in range(len(max_spin)):
-            bv_percent = buried_vol(elements, coordinates, max_spin_idx[i_spin]) # MORFEUS uses 1 indexing
-            rss = bv_percent + 50 * (1 - max_spin[i_spin])
-            rss_vals.append(rss)
-        rss_val = min(rss_vals)
+        if False: #params['use_gnn']:
+           print("c")
+           #global GNN
+           redox_dft = gnn_eval.get_gnn_preds(s, GNN)   
+           print("d", redox_dft)
+        if not params['use_gnn']:
+            # 3) Converting diquat smiles to xyz
+            try:
+                with open('stdout.txt', 'a') as f:
+                    with contextlib.redirect_stdout(f):
+                        cheapocrest_search(s, ff='uff', chrg=GetFormalCharge(m), nconfs=50, rescue='True', theory='gfnff', implicit='alpb', solvent='water')
+                elements, coordinates = read_xyz("crest_best.xyz")
+            except:
+                print("Smile: {0}, Conformer Search FAILED".format(s))
+            redox, max_spin, max_spin_idx = redox_potential(elements, coordinates, m)
+            #print(smiles, redox, max_spin, max_spin_idx)
+            if (redox == float("nan")) or (redox == -404) or (float("nan") in max_spin) or (float("nan") in max_spin_idx):
+            #if (redox == float("nan")) or (redox == -404) or (max_spin[0] == float("nan")) or (max_spin_idx[0] == float("nan")):
+                if redox == -404:
+                    print("Molecule timed out: ", smiles)
+                return [10000,1000]
+                #return (10000,1000,1000) 
+            target = -1.23
+            redox_dft = 0.72460394 * redox - 0.2828738736384303 # linear regression for xtb -> dft
+            
+            # 5) Computing buried volume with MORFEUS
+            # 6) Computing RSS for each of top 6 spins, taking minimum
+            rss_vals = []
+            for i_spin in range(len(max_spin)):
+                bv_percent = buried_vol(elements, coordinates, max_spin_idx[i_spin]) # MORFEUS uses 1 indexing
+                rss = bv_percent + 50 * (1 - max_spin[i_spin])
+                rss_vals.append(rss)
+            rss_val = min(rss_vals)
+            retain = ['conformers_obabel.xyz', 'crest_ensemble.xyz', 'ox.txt', 'pm7.out', 'red.txt', 'stdout.txt']
+            for item in os.listdir(os.getcwd()):
+                if item not in retain:
+                    os.remove(item)
+            #os.chdir('..')
 
         # 7) Computing number of heavy atoms in pyridine molecules
         size_val = pyr_mol.GetNumHeavyAtoms()
+        print("e")
         
         #fitnesses = (redox_val, rss_val, sas_val, size_val)
-        fitnesses = (redox_dft, rss_val, sas_val, size_val)
-        print(save_dir, s, smiles, fitnesses)
-        retain = ['conformers_obabel.xyz', 'crest_ensemble.xyz', 'ox.txt', 'pm7.out', 'red.txt', 'stdout.txt']
-        for item in os.listdir(os.getcwd()):
-            if item not in retain:
-                os.remove(item)
+        #fitnesses = (redox_dft, sas_val, size_val)
+        fitnesses = [redox_dft, sas_val]
+        print("f", fitnesses)
+        #fitnesses = (redox_dft, rss_val, sas_val, size_val)
         #os.chdir('..')
         return fitnesses
-    except:
-        print(smiles, '\t--------------------failed--------------------')
-        return (10000,-1000,1000,1000)       # for maximizing the objective (minimizing the function)
-    if save_dir==None:
-        os.chdir('..')
     else:
-        os.chdir(orig_dir)
-        print("back to dir.....", orig_dir)
+    #except:
+        print(smiles, '\t--------------------failed--------------------')
+        #return (10000,1000,1000)       # for maximizing the objective (minimizing the function)
+        return [10000,1000]       # for maximizing the objective (minimizing the function)
+        #return (10000,-1000,1000,1000)       # for maximizing the objective (minimizing the function)
+    #if save_dir==None:
+    #    os.chdir('..')
+    #else:
+    #    os.chdir(orig_dir)
+    #    print("back to dir.....", orig_dir)
 
 def main():
     print('name=main')
+    global params
     params = generate_params()
 
-    properties = ['redox', 'rss', 'sascore', 'size']
-    objectives = ['min', 'max', 'min', 'min']
+    #properties = ['redox', 'rss', 'sascore', 'size']
+    properties = ['redox', 'sascore']
+    #properties = ['redox', 'sascore', 'size']
+    #objectives = ['min', 'max', 'min', 'min']
+    objectives = ['min',  'min']
+    #objectives = ['min',  'min', 'min']
     kind = 'Chimera'
-    supplement = [0.0025,83,4,0]
-
+    supplement = [0.0025,4]
+    #supplement = [0.0025,4,0]
+    #supplement = [0.0025,83,4,0]
+    
+    if params['use_gnn']:
+        global GNN
+        _, cfg = gnn_eval.transform_janus(["C1C[N+]2=CC=CC=C2C3=CC=CC=[N+]31"]) ## dummy dataloader to get cfg object 
+        GNN = gnn_eval.load_gnn(params['gnn_chkpt'], cfg, 'cuda')
+        params['GNN'] = GNN
+    print("params", params)
     agent = JANUS(
-        work_dir='RESULTS_verbose', 
+        work_dir='RESULTS_verbose4', 
         num_workers = 64, # should be number of tasks available
         fitness_function = fitness_function,
         properties = properties,

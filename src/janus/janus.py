@@ -17,6 +17,24 @@ from .janus_olympus import create_value_space, create_scalarizer, scalarize_and_
 # mpi4py
 from mpi4py.futures import MPIPoolExecutor
 
+import orfb.src.eval as gnn_eval
+from rdkit import Chem, RDLogger
+from rdkit.Chem import AllChem, RDConfig, Descriptors, rdChemReactions
+
+def stitch_diquat(pyr_smi):
+    stitch_pyridines = rdChemReactions.ReactionFromSmarts(
+        '[c:1]1[n;x2][c:2]([Br])[c:3][c:4][c:5]1.\
+            [c:6]1[n;x2][c:7]([Br])[c:8][c:9][c:10]1\
+                >>[c:3]1[c:4][c:5][c:1][n+]2[c:2]1-[c:7]1[c:8][c:9][c:10][c:6][n+]1CC2')
+
+    pyridine1 = pyridine2 = Chem.MolFromSmiles(pyr_smi) # ensures symmetry
+    reacts = (pyridine1,pyridine2)
+    products = stitch_pyridines.RunReactants(reacts)
+    m = products[0][0]
+    Chem.SanitizeMol(m)
+    s = Chem.MolToSmiles(m)
+
+    return m, s # mol, smile
 class JANUS():
     ''' JANUS class for genetic algorithm applied on SELFIES
     string representation.
@@ -78,12 +96,24 @@ class JANUS():
         # mpi4py to parallelize fitness function calls
         save_dir_list = [fitnessfunc_save_dir for _ in range(len(init_smiles))]
         home_dir_list = [self.home_dir for _ in range(len(init_smiles))]
+        diquat_smiles = []
+        pred_redox = []
+        for smiles in init_smiles:
+            try:
+                m, s = stitch_diquat(smiles)
+                diquat_smiles.append((m,s))
+                pred_redox.append(gnn_eval.get_gnn_preds(s, self.GNN))
+            except:
+                diquat_smiles.append(None)
+                pred_redox.append(None)
         with MPIPoolExecutor(self.num_workers) as executor:
             init_fitness = list(executor.map(
                 self.fitness_function, 
                 init_smiles,
                 save_dir_list,
-                home_dir_list
+                home_dir_list,
+                diquat_smiles, 
+                pred_redox
             )
         )
         
@@ -318,12 +348,24 @@ class JANUS():
 
             save_dir_list = [fitnessfunc_save_dir for _ in range(len(new_pop_smiles))]
             home_dir_list = [self.home_dir for _ in range(len(new_pop_smiles))]
+            diquat_smiles = []
+            pred_redox = []
+            for smiles in new_pop_smiles:
+                try:
+                    m, s = stitch_diquat(smiles)
+                    diquat_smiles.append((m,s))
+                    pred_redox.append(gnn_eval.get_gnn_preds(s, self.GNN))
+                except:
+                    diquat_smiles.append(None)
+                    pred_redox.append(None)
             with MPIPoolExecutor(self.num_workers) as executor:
                 new_pop_fitness = list(executor.map(
                     self.fitness_function, 
                     new_pop_smiles,
                     save_dir_list,
-                    home_dir_list
+                    home_dir_list,
+                    diquat_smiles,
+                    pred_redox
                 )
             )
             # FIX FORMATTING? np.array vs tuple
@@ -417,12 +459,24 @@ class JANUS():
  
             save_dir_list = [fitnessfunc_save_dir for _ in range(len(new_loc_smiles))]
             home_dir_list = [self.home_dir for _ in range(len(new_loc_smiles))]
+            diquat_smiles = []
+            pred_redox = []
+            for smiles in new_loc_smiles:
+                try:
+                    m, s = stitch_diquat(smiles)
+                    diquat_smiles.append((m,s))
+                    pred_redox.append(gnn_eval.get_gnn_preds(s, self.GNN))
+                except:
+                    diquat_smiles.append(None)
+                    pred_redox.append(None)
             with MPIPoolExecutor(self.num_workers) as executor:
                 new_loc_fitness = list(executor.map(
                     self.fitness_function, 
                     new_loc_smiles,
                     save_dir_list, 
-                    home_dir_list
+                    home_dir_list,
+                    diquat_smiles,
+                    pred_redox
                 )
             )
             # FIX FORMATTING? np.array vs tuple
