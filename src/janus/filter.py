@@ -43,6 +43,7 @@ def substructure_violations(mol):
         '[#15;H]', # Phosphorous with hydrogen atom
         '[#15]', # Phosphorous atoms
         '[#7;H]', # Nitrogen with hydrogen atom -- JUST ADDED !!!!!
+        '[#7;H2]', # Primary amine -- JUST ADDED !!!!!
         '[#7&X5]', # Pentavalent nitrogen
         '*=[#16;!R]', # Double bond to non-ring S
         '[#16&X3]', # Trivalent sulphur
