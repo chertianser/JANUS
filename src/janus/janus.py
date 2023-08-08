@@ -566,10 +566,11 @@ class JANUS():
             print("Step 5 fin sort:", np.array(self.population)[idx_sort], np.array(self.fitness)[idx_sort])
             fit_all_best = idx_sort[0] # Sorting based on scalarized values
             fitness_sort = np.array(self.fitness)[idx_sort]
+            smiles_sort = [self.population[i] for i in idx_sort]
             
             # verify population against gen_best
             with open(os.path.join(self.work_dir, str(gen_)+"_DATA", "final_gen_fitness.txt"), "w") as f:
-                    f.writelines(["{} \n".format(x) for x in fitness_sort])
+                    f.writelines(["{}\t{}\n".format(smiles_sort[i], fitness_sort[i]) for i in range(len(fitness_sort))])
 
             ### ---- NAT: END MULTIOPT ----
 
